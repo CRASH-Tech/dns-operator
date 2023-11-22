@@ -2,16 +2,13 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"io/ioutil"
 	"net"
 	"os"
 	"os/signal"
 	"runtime"
-	"runtime/pprof"
 	"strconv"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -121,59 +118,62 @@ func main() {
 	mutex.Lock()
 
 	log.Info("WORK!")
+
 	handler()
 }
 
-func worker() {
-	log.Infof("Starting dns-operator %s", version)
-	ticker := time.NewTicker(10 * time.Second)
-	go func() {
-		for {
-			select {
-			case <-ticker.C:
-				metrics()
-			}
-		}
-	}()
-
-}
-
-func metrics() {
-	// leases, err := kClient.V1alpha1().Lease().GetAll()
-	// if err != nil {
-	// 	log.Error(err)
-
-	// 	return
-	// }
-
-	// for _, lease := range leases {
-	// 	ends, err := strconv.ParseInt(lease.Status.Ends, 10, 64)
-	// 	if err != nil {
-	// 		log.Error(err)
-
-	// 		continue
-	// 	}
-
-	// 	leaseExpiration.WithLabelValues(
-	// 		lease.Spec.Ip,
-	// 		lease.Spec.Mac,
-	// 		lease.Spec.Pool,
-	// 		lease.Status.Hostname,
-	// 	).Set(float64(ends - time.Now().Unix()))
-	// }
-}
-
-// /////////////////////////////////////////////
 var (
-	cpuprofile  = flag.String("cpuprofile", "", "write cpu profile to file")
-	printf      = flag.Bool("print", false, "print replies")
-	compress    = flag.Bool("compress", false, "compress replies")
-	tsig        = flag.String("tsig", "", "use MD5 hmac tsig: keyname:base64")
-	soreuseport = flag.Int("soreuseport", 0, "use SO_REUSE_PORT")
-	cpu         = flag.Int("cpu", 0, "number of cpu to use")
+// printf      = flag.Bool("print", false, "print replies")
+// compress    = flag.Bool("compress", false, "compress replies")
+// tsig        = flag.String("tsig", "", "use MD5 hmac tsig: keyname:base64")
+// soreuseport = flag.Int("soreuseport", 0, "use SO_REUSE_PORT")
+// cpu         = flag.Int("cpu", 0, "number of cpu to use")
 )
 
 const dom = "whoami.miek.nl."
+
+func handler() {
+	var name, secret string
+	// flag.Usage = func() {
+	// 	flag.PrintDefaults()
+	// }
+	// flag.Parse()
+
+	// if *tsig != "" {
+	// 	a := strings.SplitN(*tsig, ":", 2)
+	// 	name, secret = dns.Fqdn(a[0]), a[1] // fqdn the name, which everybody forgets...
+	// }
+
+	runtime.GOMAXPROCS(config.MAX_PROCS)
+
+	dns.HandleFunc("miek.nl.", handleReflect)
+
+	for i := 0; i < config.SO_REUSE_PORTS; i++ {
+		go serve("tcp", name, secret, true)
+		go serve("udp", name, secret, true)
+	}
+
+	sig := make(chan os.Signal)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+	s := <-sig
+	fmt.Printf("Signal (%s) received, stopping\n", s)
+}
+
+func serve(net, name, secret string, soreuseport bool) {
+	switch name {
+	case "":
+		server := &dns.Server{Addr: "[::]:8053", Net: net, TsigSecret: nil, ReusePort: soreuseport}
+		if err := server.ListenAndServe(); err != nil {
+			fmt.Printf("Failed to setup the "+net+" server: %s\n", err.Error())
+
+		}
+	default:
+		server := &dns.Server{Addr: ":8053", Net: net, TsigSecret: map[string]string{name: secret}, ReusePort: soreuseport}
+		if err := server.ListenAndServe(); err != nil {
+			fmt.Printf("Failed to setup the "+net+" server: %s\n", err.Error())
+		}
+	}
+}
 
 func handleReflect(w dns.ResponseWriter, r *dns.Msg) {
 	var (
@@ -184,7 +184,7 @@ func handleReflect(w dns.ResponseWriter, r *dns.Msg) {
 	)
 	m := new(dns.Msg)
 	m.SetReply(r)
-	m.Compress = *compress
+	m.Compress = config.COMPRESS
 	if ip, ok := w.RemoteAddr().(*net.UDPAddr); ok {
 		str = "Port: " + strconv.Itoa(ip.Port) + " (udp)"
 		a = ip.IP
@@ -243,9 +243,9 @@ func handleReflect(w dns.ResponseWriter, r *dns.Msg) {
 			println("Status", w.TsigStatus().Error())
 		}
 	}
-	if *printf {
-		fmt.Printf("%v\n", m.String())
-	}
+
+	log.Debugf("%v\n", m.String())
+
 	// set TC when question is tc.miek.nl.
 	if m.Question[0].Name == "tc.miek.nl." {
 		m.Truncated = true
@@ -255,58 +255,4 @@ func handleReflect(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 	w.WriteMsg(m)
-}
-
-func serve(net, name, secret string, soreuseport bool) {
-	switch name {
-	case "":
-		server := &dns.Server{Addr: "[::]:8053", Net: net, TsigSecret: nil, ReusePort: soreuseport}
-		if err := server.ListenAndServe(); err != nil {
-			fmt.Printf("Failed to setup the "+net+" server: %s\n", err.Error())
-
-		}
-	default:
-		server := &dns.Server{Addr: ":8053", Net: net, TsigSecret: map[string]string{name: secret}, ReusePort: soreuseport}
-		if err := server.ListenAndServe(); err != nil {
-			fmt.Printf("Failed to setup the "+net+" server: %s\n", err.Error())
-		}
-	}
-}
-
-func handler() {
-	var name, secret string
-	flag.Usage = func() {
-		flag.PrintDefaults()
-	}
-	flag.Parse()
-	if *tsig != "" {
-		a := strings.SplitN(*tsig, ":", 2)
-		name, secret = dns.Fqdn(a[0]), a[1] // fqdn the name, which everybody forgets...
-	}
-	if *cpuprofile != "" {
-		f, err := os.Create(*cpuprofile)
-		if err != nil {
-			log.Fatal(err)
-		}
-		pprof.StartCPUProfile(f)
-		defer pprof.StopCPUProfile()
-	}
-
-	if *cpu != 0 {
-		runtime.GOMAXPROCS(*cpu)
-	}
-	dns.HandleFunc("miek.nl.", handleReflect)
-	if *soreuseport > 0 {
-		for i := 0; i < *soreuseport; i++ {
-			go serve("tcp", name, secret, true)
-			go serve("udp", name, secret, true)
-		}
-	} else {
-		go serve("tcp", name, secret, false)
-		go serve("udp", name, secret, false)
-	}
-	sig := make(chan os.Signal)
-	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-	s := <-sig
-	fmt.Printf("Signal (%s) received, stopping\n", s)
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"os"
 	"strconv"
 
@@ -8,33 +9,55 @@ import (
 	//"github.com/CRASH-Tech/dns-operator/cmd/kubernetes/api/v1alpha1"
 )
 
-func getenv(key, fallback string) string {
+func getStringEnv(key, fallback string) string {
 	value := os.Getenv(key)
 	if len(value) == 0 {
 		return fallback
 	}
+
 	return value
+}
+
+func getIntEnv(key string, fallback int) int {
+	value := os.Getenv(key)
+
+	if len(value) == 0 {
+		return fallback
+	}
+	intValue, err := strconv.Atoi(value)
+	if err != nil {
+		log.Panicf("cannot parse environment variable as integer. %s %v", key, value)
+	}
+
+	return intValue
+}
+
+func getBoolEnv(key string, fallback bool) bool {
+	value := os.Getenv(key)
+
+	if len(value) == 0 {
+		return fallback
+	}
+
+	if value == "true" {
+		return true
+	} else {
+		return false
+	}
 }
 
 func readConfig() (common.Config, error) {
 	config := common.Config{}
 
-	listenTCP, err := strconv.Atoi(getenv("LISTEN_TCP", "5353"))
-	if err != nil {
-		return config, err
-	}
+	config.LISTEN_TCP = getIntEnv("LISTEN_TCP", 5353)
+	config.LISTEN_UDP = getIntEnv("LISTEN_UDP", 5353)
 
-	config.LISTEN_TCP = listenTCP
+	config.LOG_LEVEL = getStringEnv("LOG_LEVEL", "debug") //TODO: CHANGE TO info
+	config.LOG_FORMAT = getStringEnv("LOG_FORMAT", "text")
 
-	listenUDP, err := strconv.Atoi(getenv("LISTEN_UDP", "5353"))
-	if err != nil {
-		return config, err
-	}
-
-	config.LISTEN_UDP = listenUDP
-
-	config.LOG_LEVEL = getenv("LOG_LEVEL", "info")
-	config.LOG_FORMAT = getenv("LOG_FORMAT", "text")
+	config.MAX_PROCS = getIntEnv("MAX_PROCS", 1)
+	config.SO_REUSE_PORTS = getIntEnv("SO_REUSE_PORTS", 10) //TODO: CHECK IT
+	config.COMPRESS = getBoolEnv("COMPRESS", true)
 
 	return config, nil
 }
