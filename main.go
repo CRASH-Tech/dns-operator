@@ -4,11 +4,12 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
+	"math/rand"
 	"net"
 	"os"
 	"os/signal"
 	"runtime"
-	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -36,7 +37,9 @@ var (
 	namespace string
 	hostname  string
 
-	mutex sync.Mutex
+	mutex     sync.Mutex
+	upstreams []common.Upstream
+	//recursiveQueues []chan common.QueryJob
 
 	// leaseExpiration = prometheus.NewGaugeVec(
 	// 	prometheus.GaugeOpts{
@@ -115,30 +118,76 @@ func main() {
 
 	kClient = kubernetes.NewClient(ctx, *config.DynamicClient, *config.KubernetesClient)
 
-	mutex.Lock()
+	//mutex.Lock()
 
-	log.Info("WORK!")
+	setUpstreams()
+	for _, upstream := range upstreams {
+		go upstreamWorker(upstream)
+	}
 
-	handler()
+	lol()
+
 }
 
-var (
-// printf      = flag.Bool("print", false, "print replies")
-// compress    = flag.Bool("compress", false, "compress replies")
-// tsig        = flag.String("tsig", "", "use MD5 hmac tsig: keyname:base64")
-// soreuseport = flag.Int("soreuseport", 0, "use SO_REUSE_PORT")
-// cpu         = flag.Int("cpu", 0, "number of cpu to use")
-)
+func setUpstreams() {
+	upstreams = append(upstreams, common.Upstream{
+		Host:         "8.8.8.8",
+		Port:         53,
+		Type:         "udp",
+		QueueSize:    10,
+		Chan:         make(chan common.QueryJob, 10),
+		AllowedZones: []string{"."},
+	})
 
-const dom = "whoami.miek.nl."
+	upstreams = append(upstreams, common.Upstream{
+		Host:         "8.8.4.4",
+		Port:         53,
+		Type:         "udp",
+		QueueSize:    10,
+		Chan:         make(chan common.QueryJob, 10),
+		AllowedZones: []string{"."},
+	})
 
-func handler() {
-	var name, secret string
-	// flag.Usage = func() {
-	// 	flag.PrintDefaults()
-	// }
-	// flag.Parse()
+	upstreams = append(upstreams, common.Upstream{
+		Host:         "77.88.8.8",
+		Port:         53,
+		Type:         "udp",
+		QueueSize:    10,
+		Chan:         make(chan common.QueryJob, 10),
+		AllowedZones: []string{"."},
+	})
 
+	upstreams = append(upstreams, common.Upstream{
+		Host:         "77.88.8.1",
+		Port:         53,
+		Type:         "udp",
+		QueueSize:    10,
+		Chan:         make(chan common.QueryJob, 10),
+		AllowedZones: []string{"."},
+	})
+
+	upstreams = append(upstreams, common.Upstream{
+		Host:         "77.88.8.8",
+		Port:         853,
+		Type:         "tcp-tls",
+		QueueSize:    10,
+		Chan:         make(chan common.QueryJob, 10),
+		AllowedZones: []string{"."},
+	})
+
+	upstreams = append(upstreams, common.Upstream{
+		Host:         "195.211.122.1",
+		Port:         53,
+		Type:         "udp",
+		QueueSize:    10,
+		Chan:         make(chan common.QueryJob, 10),
+		AllowedZones: []string{"uis"},
+	})
+
+}
+
+func lol() {
+	var secret string
 	// if *tsig != "" {
 	// 	a := strings.SplitN(*tsig, ":", 2)
 	// 	name, secret = dns.Fqdn(a[0]), a[1] // fqdn the name, which everybody forgets...
@@ -146,11 +195,11 @@ func handler() {
 
 	runtime.GOMAXPROCS(config.MAX_PROCS)
 
-	dns.HandleFunc("miek.nl.", handleReflect)
+	dns.HandleFunc(".", handlerMain)
 
 	for i := 0; i < config.SO_REUSE_PORTS; i++ {
-		go serve("tcp", name, secret, true)
-		go serve("udp", name, secret, true)
+		go serve("tcp", config.LISTEN_TCP_PORT, secret, config.SO_REUSE_PORTS > 1)
+		go serve("udp", config.LISTEN_UDP_PORT, secret, config.SO_REUSE_PORTS > 1)
 	}
 
 	sig := make(chan os.Signal)
@@ -159,44 +208,77 @@ func handler() {
 	fmt.Printf("Signal (%s) received, stopping\n", s)
 }
 
-func serve(net, name, secret string, soreuseport bool) {
-	switch name {
-	case "":
-		server := &dns.Server{Addr: "[::]:8053", Net: net, TsigSecret: nil, ReusePort: soreuseport}
-		if err := server.ListenAndServe(); err != nil {
-			fmt.Printf("Failed to setup the "+net+" server: %s\n", err.Error())
+func serve(net string, port int, tsig string, soreuseport bool) {
+	server := &dns.Server{Addr: fmt.Sprintf("%s:%d", config.LISTEN_ADDRESS, port), Net: net, TsigSecret: nil, ReusePort: soreuseport}
+	if err := server.ListenAndServe(); err != nil {
+		fmt.Printf("Failed to setup the "+net+" server: %s\n", err.Error())
 
+	}
+	// switch name {
+	// case "":
+	// 	server := &dns.Server{Addr: "[::]:8053", Net: net, TsigSecret: nil, ReusePort: soreuseport}
+	// 	if err := server.ListenAndServe(); err != nil {
+	// 		fmt.Printf("Failed to setup the "+net+" server: %s\n", err.Error())
+
+	// 	}
+	// default:
+	// 	server := &dns.Server{Addr: ":8053", Net: net, TsigSecret: map[string]string{name: secret}, ReusePort: soreuseport}
+	// 	if err := server.ListenAndServe(); err != nil {
+	// 		fmt.Printf("Failed to setup the "+net+" server: %s\n", err.Error())
+	// 	}
+	// }
+}
+
+func isOwnZone(domain string) bool {
+	ownZones := []string{"uis.st", "xfix.org"}
+
+	for _, zone := range ownZones {
+		if strings.HasSuffix(domain, dns.Fqdn(zone)) {
+			return true
 		}
-	default:
-		server := &dns.Server{Addr: ":8053", Net: net, TsigSecret: map[string]string{name: secret}, ReusePort: soreuseport}
-		if err := server.ListenAndServe(); err != nil {
-			fmt.Printf("Failed to setup the "+net+" server: %s\n", err.Error())
+	}
+
+	return false
+}
+
+func handlerMain(w dns.ResponseWriter, r *dns.Msg) {
+	for _, q := range r.Question {
+		if isOwnZone(q.Name) {
+			handlerOwn(w, r, q.Name)
+		} else {
+			handlerRecurse(w, r, q.Name)
 		}
 	}
 }
 
-func handleReflect(w dns.ResponseWriter, r *dns.Msg) {
+const dom = "whoami.miek.nl."
+
+func handlerOwn(w dns.ResponseWriter, r *dns.Msg, question string) {
+	log.Debugf("Received own query: %s", question)
+
 	var (
-		v4  bool
+		//v4  bool
 		rr  dns.RR
 		str string
 		a   net.IP
 	)
+
 	m := new(dns.Msg)
 	m.SetReply(r)
 	m.Compress = config.COMPRESS
-	if ip, ok := w.RemoteAddr().(*net.UDPAddr); ok {
-		str = "Port: " + strconv.Itoa(ip.Port) + " (udp)"
-		a = ip.IP
-		v4 = a.To4() != nil
-	}
-	if ip, ok := w.RemoteAddr().(*net.TCPAddr); ok {
-		str = "Port: " + strconv.Itoa(ip.Port) + " (tcp)"
-		a = ip.IP
-		v4 = a.To4() != nil
-	}
 
-	if v4 {
+	// if ip, ok := w.RemoteAddr().(*net.UDPAddr); ok {
+	// 	str = "Port: " + strconv.Itoa(ip.Port) + " (udp)"
+	// 	a = ip.IP
+	// 	v4 = a.To4() != nil
+	// }
+	// if ip, ok := w.RemoteAddr().(*net.TCPAddr); ok {
+	// 	str = "Port: " + strconv.Itoa(ip.Port) + " (tcp)"
+	// 	a = ip.IP
+	// 	v4 = a.To4() != nil
+	// }
+
+	if a.To4() != nil {
 		rr = &dns.A{
 			Hdr: dns.RR_Header{Name: dom, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 0},
 			A:   a.To4(),
@@ -255,4 +337,66 @@ func handleReflect(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 	w.WriteMsg(m)
+}
+
+func handlerRecurse(w dns.ResponseWriter, r *dns.Msg, question string) {
+
+	rand.Shuffle(len(upstreams), func(i, j int) { upstreams[i], upstreams[j] = upstreams[j], upstreams[i] })
+
+	i := 1
+	for _, upstream := range upstreams {
+		if i <= config.PARALLEL_QUERIES {
+			query := common.QueryJob{
+				Msg:     r,
+				RWriter: w,
+			}
+			select {
+			case upstream.Chan <- query:
+				log.Debugf("Send query %s(%d) to upstream %s:%d(%s)", query.Msg.Question[0].Name, query.Msg.Question[0].Qtype, upstream.Host, upstream.Port, upstream.Type)
+				i++
+			default:
+				log.Warnf("Cannot send query %s(%d) to upstream %s:%d(%s) queue full", query.Msg.Question[0].Name, query.Msg.Question[0].Qtype, upstream.Host, upstream.Port, upstream.Type)
+			}
+		}
+	}
+
+	if i <= config.PARALLEL_QUERIES {
+		log.Errorf("Cannot send query no avialable upstreams!")
+	}
+
+}
+
+func upstreamWorker(upstream common.Upstream) {
+	log.Infof("Started upstream worker %s:%d(%s)", upstream.Host, upstream.Port, upstream.Type)
+
+	client := dns.Client{
+		Net: upstream.Type,
+	}
+
+	for query := range upstream.Chan {
+		log.Debugf("Received query %s(%d) resolving via %s:%d(%s)", query.Msg.Question[0].Name, query.Msg.Question[0].Qtype, upstream.Host, upstream.Port, upstream.Type)
+
+		resp, _, err := client.Exchange(query.Msg, fmt.Sprintf("%s:%d", upstream.Host, upstream.Port))
+		if err != nil {
+			log.Errorf("failed to exchange: %v", err)
+			go connCloser(query.RWriter, resp)
+			continue
+		}
+
+		if resp.Rcode != dns.RcodeSuccess {
+			log.Errorf("failed to get an valid answer\n%v", resp)
+			go connCloser(query.RWriter, resp)
+			continue
+		}
+
+		log.Debugf("Received responce %s(%d) resolved via %s:%d(%s)", resp.Question[0].Name, resp.Question[0].Qtype, upstream.Host, upstream.Port, upstream.Type)
+		query.RWriter.WriteMsg(resp)
+	}
+}
+
+func connCloser(w dns.ResponseWriter, r *dns.Msg) {
+	time.Sleep(time.Duration(config.TIMEOUT_SECONDS) * time.Second)
+	log.Warnf("Close connention with error %d %s", r.Rcode, w.RemoteAddr().String())
+
+	w.WriteMsg(r)
 }
