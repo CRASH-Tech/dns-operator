@@ -56,10 +56,10 @@ func readConfig() (common.Config, error) {
 	config.LOG_LEVEL = getStringEnv("LOG_LEVEL", "debug") //TODO: CHANGE TO info
 	config.LOG_FORMAT = getStringEnv("LOG_FORMAT", "text")
 
-	config.MAX_PROCS = getIntEnv("MAX_PROCS", 1)
-	config.SO_REUSE_PORTS = getIntEnv("SO_REUSE_PORTS", 10)    //TODO: CHECK IT
-	config.PARALLEL_QUERIES = getIntEnv("PARALLEL_QUERIES", 2) //TODO: CHECK IT
-	config.TIMEOUT_SECONDS = getIntEnv("TIMEOUT_SECONDS", 2)   //TODO: CHECK IT
+	config.MAX_PROCS = getIntEnv("MAX_PROCS", 1000)
+	config.SO_REUSE_PORTS = getIntEnv("SO_REUSE_PORTS", 1000)  //TODO: CHECK IT
+	config.PARALLEL_QUERIES = getIntEnv("PARALLEL_QUERIES", 3) //TODO: CHECK IT
+	config.TIMEOUT_SECONDS = getIntEnv("TIMEOUT_SECONDS", 10)  //TODO: CHECK IT
 	config.COMPRESS = getBoolEnv("COMPRESS", true)
 	//config.QUEUE_SIZE = getIntEnv("QUEUE_SIZE", 100) //TODO: CHECK IT
 

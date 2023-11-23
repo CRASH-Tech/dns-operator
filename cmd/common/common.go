@@ -34,7 +34,7 @@ type Upstream struct {
 	Port         int
 	Type         string
 	QueueSize    int
-	AllowedZones []string
+	AllowedZones []string //TODO: IMPLEMENT THIS
 	Status       UpstreamStatus
 }
 
