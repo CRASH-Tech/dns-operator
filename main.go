@@ -16,6 +16,7 @@ import (
 
 	"github.com/CRASH-Tech/dns-operator/cmd/common"
 	"github.com/CRASH-Tech/dns-operator/cmd/kubernetes"
+	"github.com/jamiealquiza/tachymeter"
 
 	// "github.com/CRASH-Tech/dns-operator/cmd/kubernetes/api"
 	// "github.com/CRASH-Tech/dns-operator/cmd/kubernetes/api/v1alpha1"
@@ -37,7 +38,11 @@ var (
 	namespace string
 	hostname  string
 
-	mutex     sync.Mutex
+	mutex sync.Mutex
+
+	latencyStats map[uint16]time.Time
+	latencyMeter *tachymeter.Tachymeter
+
 	upstreams []*common.Upstream
 	//recursiveQueues []chan common.QueryJob
 
@@ -120,6 +125,9 @@ func main() {
 
 	//mutex.Lock()
 
+	latencyMeter = tachymeter.New(&tachymeter.Config{Size: 50})
+	latencyStats = make(map[uint16]time.Time)
+
 	setUpstreams()
 	for _, upstream := range upstreams {
 		go upstreamWorker(upstream)
@@ -132,16 +140,20 @@ func main() {
 
 func metrics() {
 	for {
-		for _, upstrem := range upstreams {
+		for _, upstream := range upstreams {
 			log.Debugf("UPSTREAM STATUS: %s:%d(%s) ALIVE: %t REQUESTS: %d ANSWERS: %d RCODES: %v QTYPES: %v",
-				upstrem.Host, upstrem.Port,
-				upstrem.Type,
-				upstrem.Status.Alive,
-				upstrem.Status.Requests,
-				upstrem.Status.Answers,
-				upstrem.Status.RCodes,
-				upstrem.Status.QTypes,
+				upstream.Host, upstream.Port,
+				upstream.Type,
+				upstream.Status.Alive,
+				upstream.Status.Requests,
+				upstream.Status.Answers,
+				upstream.Status.RCodes,
+				upstream.Status.QTypes,
 			)
+			if upstream.Status.LatencyMeter != nil {
+				//log.Println(upstream.Status.LatencyMeter.Calc())
+			}
+			log.Println(latencyMeter.Calc())
 		}
 		log.Debug("=============================")
 		time.Sleep(5 * time.Second)
@@ -262,6 +274,7 @@ func isOwnZone(domain string) bool {
 }
 
 func handlerMain(w dns.ResponseWriter, r *dns.Msg) {
+	latencyStats[r.Id] = time.Now()
 	for _, q := range r.Question {
 		if isOwnZone(q.Name) {
 			handlerOwn(w, r, q.Name)
@@ -387,6 +400,8 @@ func handlerRecurse(w dns.ResponseWriter, r *dns.Msg, question string) {
 
 func upstreamWorker(upstream *common.Upstream) {
 	log.Infof("Started upstream worker %s:%d(%s)", upstream.Host, upstream.Port, upstream.Type)
+
+	upstream.Status.LatencyMeter = tachymeter.New(&tachymeter.Config{Size: 50})
 	upstream.Status.QTypes = make(map[uint16]int64)
 	upstream.Status.RCodes = make(map[int]int64)
 
@@ -395,6 +410,7 @@ func upstreamWorker(upstream *common.Upstream) {
 	}
 
 	for query := range upstream.Chan {
+		start := time.Now()
 		log.Debugf("Received query %s(%d) resolving via %s:%d(%s)", query.Msg.Question[0].Name, query.Msg.Question[0].Qtype, upstream.Host, upstream.Port, upstream.Type)
 
 		upstream.Status.Alive = true
@@ -407,6 +423,8 @@ func upstreamWorker(upstream *common.Upstream) {
 
 			upstream.Status.Timeouts++
 			upstream.Status.RCodes[resp.Rcode]++
+			latencyMeter.AddTime(time.Since(latencyStats[query.Msg.Id]))
+			delete(latencyStats, query.Msg.Id)
 
 			go connCloser(query.RWriter, resp)
 			continue
@@ -416,6 +434,8 @@ func upstreamWorker(upstream *common.Upstream) {
 			log.Errorf("failed to get an valid answer\n%v", resp)
 
 			upstream.Status.RCodes[resp.Rcode]++
+			latencyMeter.AddTime(time.Since(latencyStats[query.Msg.Id]))
+			delete(latencyStats, query.Msg.Id)
 
 			go connCloser(query.RWriter, resp)
 			continue
@@ -425,6 +445,9 @@ func upstreamWorker(upstream *common.Upstream) {
 		upstream.Status.Answers++
 		upstream.Status.RCodes[resp.Rcode]++
 		query.RWriter.WriteMsg(resp)
+		upstream.Status.LatencyMeter.AddTime(time.Since(start))
+		latencyMeter.AddTime(time.Since(latencyStats[query.Msg.Id]))
+		delete(latencyStats, query.Msg.Id)
 	}
 }
 

@@ -1,6 +1,7 @@
 package common
 
 import (
+	"github.com/jamiealquiza/tachymeter"
 	"github.com/miekg/dns"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
@@ -38,10 +39,11 @@ type Upstream struct {
 }
 
 type UpstreamStatus struct {
-	Alive    bool
-	Requests int64
-	Answers  int64
-	Timeouts int64
-	RCodes   map[int]int64
-	QTypes   map[uint16]int64
+	Alive        bool
+	Requests     int64
+	Answers      int64
+	Timeouts     int64
+	RCodes       map[int]int64
+	QTypes       map[uint16]int64
+	LatencyMeter *tachymeter.Tachymeter
 }

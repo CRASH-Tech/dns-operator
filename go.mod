@@ -3,6 +3,7 @@ module github.com/CRASH-Tech/dns-operator
 go 1.21.4
 
 require (
+	github.com/jamiealquiza/tachymeter v2.0.0+incompatible
 	github.com/miekg/dns v1.1.57
 	github.com/sirupsen/logrus v1.9.3
 	k8s.io/apimachinery v0.28.4
