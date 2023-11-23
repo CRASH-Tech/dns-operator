@@ -41,5 +41,7 @@ type UpstreamStatus struct {
 	Alive    bool
 	Requests int64
 	Answers  int64
-	Errors   int64
+	Timeouts int64
+	RCodes   map[int]int64
+	QTypes   map[uint16]int64
 }

@@ -38,7 +38,7 @@ var (
 	hostname  string
 
 	mutex     sync.Mutex
-	upstreams []common.Upstream
+	upstreams []*common.Upstream
 	//recursiveQueues []chan common.QueryJob
 
 	// leaseExpiration = prometheus.NewGaugeVec(
@@ -125,12 +125,32 @@ func main() {
 		go upstreamWorker(upstream)
 	}
 
+	go metrics()
 	lol()
 
 }
 
+func metrics() {
+	for {
+		for _, upstrem := range upstreams {
+			log.Debugf("UPSTREAM STATUS: %s:%d(%s) ALIVE: %t REQUESTS: %d ANSWERS: %d RCODES: %v QTYPES: %v",
+				upstrem.Host, upstrem.Port,
+				upstrem.Type,
+				upstrem.Status.Alive,
+				upstrem.Status.Requests,
+				upstrem.Status.Answers,
+				upstrem.Status.RCodes,
+				upstrem.Status.QTypes,
+			)
+		}
+		log.Debug("=============================")
+		time.Sleep(5 * time.Second)
+	}
+
+}
+
 func setUpstreams() {
-	upstreams = append(upstreams, common.Upstream{
+	upstreams = append(upstreams, &common.Upstream{
 		Host:         "8.8.8.8",
 		Port:         53,
 		Type:         "udp",
@@ -139,7 +159,7 @@ func setUpstreams() {
 		AllowedZones: []string{"."},
 	})
 
-	upstreams = append(upstreams, common.Upstream{
+	upstreams = append(upstreams, &common.Upstream{
 		Host:         "8.8.4.4",
 		Port:         53,
 		Type:         "udp",
@@ -148,7 +168,7 @@ func setUpstreams() {
 		AllowedZones: []string{"."},
 	})
 
-	upstreams = append(upstreams, common.Upstream{
+	upstreams = append(upstreams, &common.Upstream{
 		Host:         "77.88.8.8",
 		Port:         53,
 		Type:         "udp",
@@ -157,7 +177,7 @@ func setUpstreams() {
 		AllowedZones: []string{"."},
 	})
 
-	upstreams = append(upstreams, common.Upstream{
+	upstreams = append(upstreams, &common.Upstream{
 		Host:         "77.88.8.1",
 		Port:         53,
 		Type:         "udp",
@@ -166,7 +186,7 @@ func setUpstreams() {
 		AllowedZones: []string{"."},
 	})
 
-	upstreams = append(upstreams, common.Upstream{
+	upstreams = append(upstreams, &common.Upstream{
 		Host:         "77.88.8.8",
 		Port:         853,
 		Type:         "tcp-tls",
@@ -175,7 +195,7 @@ func setUpstreams() {
 		AllowedZones: []string{"."},
 	})
 
-	upstreams = append(upstreams, common.Upstream{
+	upstreams = append(upstreams, &common.Upstream{
 		Host:         "195.211.122.1",
 		Port:         53,
 		Type:         "udp",
@@ -340,7 +360,6 @@ func handlerOwn(w dns.ResponseWriter, r *dns.Msg, question string) {
 }
 
 func handlerRecurse(w dns.ResponseWriter, r *dns.Msg, question string) {
-
 	rand.Shuffle(len(upstreams), func(i, j int) { upstreams[i], upstreams[j] = upstreams[j], upstreams[i] })
 
 	i := 1
@@ -366,8 +385,10 @@ func handlerRecurse(w dns.ResponseWriter, r *dns.Msg, question string) {
 
 }
 
-func upstreamWorker(upstream common.Upstream) {
+func upstreamWorker(upstream *common.Upstream) {
 	log.Infof("Started upstream worker %s:%d(%s)", upstream.Host, upstream.Port, upstream.Type)
+	upstream.Status.QTypes = make(map[uint16]int64)
+	upstream.Status.RCodes = make(map[int]int64)
 
 	client := dns.Client{
 		Net: upstream.Type,
@@ -376,20 +397,33 @@ func upstreamWorker(upstream common.Upstream) {
 	for query := range upstream.Chan {
 		log.Debugf("Received query %s(%d) resolving via %s:%d(%s)", query.Msg.Question[0].Name, query.Msg.Question[0].Qtype, upstream.Host, upstream.Port, upstream.Type)
 
+		upstream.Status.Alive = true
+		upstream.Status.Requests++
+		upstream.Status.QTypes[query.Msg.Question[0].Qtype]++
+
 		resp, _, err := client.Exchange(query.Msg, fmt.Sprintf("%s:%d", upstream.Host, upstream.Port))
 		if err != nil {
 			log.Errorf("failed to exchange: %v", err)
+
+			upstream.Status.Timeouts++
+			upstream.Status.RCodes[resp.Rcode]++
+
 			go connCloser(query.RWriter, resp)
 			continue
 		}
 
 		if resp.Rcode != dns.RcodeSuccess {
 			log.Errorf("failed to get an valid answer\n%v", resp)
+
+			upstream.Status.RCodes[resp.Rcode]++
+
 			go connCloser(query.RWriter, resp)
 			continue
 		}
 
 		log.Debugf("Received responce %s(%d) resolved via %s:%d(%s)", resp.Question[0].Name, resp.Question[0].Qtype, upstream.Host, upstream.Port, upstream.Type)
+		upstream.Status.Answers++
+		upstream.Status.RCodes[resp.Rcode]++
 		query.RWriter.WriteMsg(resp)
 	}
 }
@@ -400,3 +434,17 @@ func connCloser(w dns.ResponseWriter, r *dns.Msg) {
 
 	w.WriteMsg(r)
 }
+
+// func upstreamStatus(r *dns.Msg) {
+// 	switch r.Rcode {
+// 	case "darwin":
+// 		fmt.Println("OS X.")
+// 	case "linux":
+// 		fmt.Println("Linux.")
+// 	default:
+// 		// freebsd, openbsd,
+// 		// plan9, windows...
+// 		fmt.Printf("%s.\n", os)
+// 	}
+
+// }
