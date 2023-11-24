@@ -3,10 +3,9 @@ package main
 import (
 	"fmt"
 	"math/rand"
-	"time"
 
 	"github.com/CRASH-Tech/dns-operator/cmd/common"
-	"github.com/jamiealquiza/tachymeter"
+	. "github.com/CRASH-Tech/dns-operator/cmd/common"
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 )
@@ -106,7 +105,7 @@ func recursorHandler(w dns.ResponseWriter, r *dns.Msg, question string) {
 func upstreamWorker(upstream *common.Upstream) {
 	log.Infof("Started upstream worker %s:%d(%s)", upstream.Host, upstream.Port, upstream.Type)
 
-	upstream.Status.LatencyMeter = tachymeter.New(&tachymeter.Config{Size: 50})
+	upstream.Status.LM = NewLM(config.STATS_SAMPLES)
 	upstream.Status.QTypes = make(map[uint16]int64)
 	upstream.Status.RCodes = make(map[int]int64)
 
@@ -115,8 +114,7 @@ func upstreamWorker(upstream *common.Upstream) {
 	}
 
 	for query := range upstream.Chan {
-
-		start := time.Now()
+		upstream.Status.LM.PushStart()
 		log.Debugf("Received query %s(%d) resolving via %s:%d(%s)", query.Msg.Question[0].Name, query.Msg.Question[0].Qtype, upstream.Host, upstream.Port, upstream.Type)
 
 		upstream.Status.Alive = true
@@ -129,10 +127,7 @@ func upstreamWorker(upstream *common.Upstream) {
 
 			upstream.Status.Timeouts++
 			upstream.Status.RCodes[2]++
-			latencyMeter.AddTime(time.Since(latencyStats[query.Msg.Id]))
-			latencyMutex.Lock() //TODO: MOVE IT TO GORUTINE
-			delete(latencyStats, query.Msg.Id)
-			latencyMutex.Unlock()
+			lm.PushEndId(query.Msg.Id)
 
 			go connCloser(query.RWriter, query.Msg)
 			continue
@@ -142,10 +137,7 @@ func upstreamWorker(upstream *common.Upstream) {
 			log.Errorf("failed to get an valid answer\n%v", resp)
 
 			upstream.Status.RCodes[resp.Rcode]++
-			latencyMeter.AddTime(time.Since(latencyStats[query.Msg.Id]))
-			latencyMutex.Lock() //TODO: MOVE IT TO GORUTINE
-			delete(latencyStats, query.Msg.Id)
-			latencyMutex.Unlock()
+			lm.PushEndId(query.Msg.Id)
 
 			go connCloser(query.RWriter, resp)
 			continue
@@ -158,10 +150,7 @@ func upstreamWorker(upstream *common.Upstream) {
 		log.Debug("Send reply to client")
 		query.RWriter.WriteMsg(resp)
 
-		upstream.Status.LatencyMeter.AddTime(time.Since(start))
-		latencyMeter.AddTime(time.Since(latencyStats[query.Msg.Id]))
-		latencyMutex.Lock() //TODO: MOVE IT TO GORUTINE
-		delete(latencyStats, query.Msg.Id)
-		latencyMutex.Unlock()
+		upstream.Status.LM.PushEnd()
+		lm.PushEndId(query.Msg.Id)
 	}
 }

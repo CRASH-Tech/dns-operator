@@ -8,13 +8,12 @@ import (
 	"os/signal"
 	"runtime"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
 	"github.com/CRASH-Tech/dns-operator/cmd/common"
+	. "github.com/CRASH-Tech/dns-operator/cmd/common"
 	"github.com/CRASH-Tech/dns-operator/cmd/kubernetes"
-	"github.com/jamiealquiza/tachymeter"
 
 	// "github.com/CRASH-Tech/dns-operator/cmd/kubernetes/api"
 	// "github.com/CRASH-Tech/dns-operator/cmd/kubernetes/api/v1alpha1"
@@ -36,9 +35,7 @@ var (
 	namespace string
 	hostname  string
 
-	latencyMutex sync.RWMutex
-	latencyStats map[uint16]time.Time
-	latencyMeter *tachymeter.Tachymeter
+	lm LatencyMeter
 
 	upstreams []*common.Upstream
 	//recursiveQueues []chan common.QueryJob
@@ -121,16 +118,14 @@ func main() {
 	kClient = kubernetes.NewClient(ctx, *config.DynamicClient, *config.KubernetesClient)
 
 	//mutex.Lock()
-
-	latencyMeter = tachymeter.New(&tachymeter.Config{Size: 50})
-	latencyStats = make(map[uint16]time.Time)
+	lm = NewLM(config.STATS_SAMPLES)
 
 	setUpstreams()
 	for _, upstream := range upstreams {
 		go upstreamWorker(upstream)
 	}
 
-	//go metrics()
+	go metrics()
 
 	var secret string
 	// if *tsig != "" {
@@ -151,29 +146,6 @@ func main() {
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	s := <-sig
 	fmt.Printf("Signal (%s) received, stopping\n", s)
-
-}
-
-func metrics() {
-	for {
-		for _, upstream := range upstreams {
-			log.Debugf("UPSTREAM STATUS: %s:%d(%s) ALIVE: %t REQUESTS: %d ANSWERS: %d RCODES: %v QTYPES: %v",
-				upstream.Host, upstream.Port,
-				upstream.Type,
-				upstream.Status.Alive,
-				upstream.Status.Requests,
-				upstream.Status.Answers,
-				upstream.Status.RCodes,
-				upstream.Status.QTypes,
-			)
-			if upstream.Status.LatencyMeter != nil {
-				//log.Println(upstream.Status.LatencyMeter.Calc())
-			}
-			log.Println(latencyMeter.Calc())
-		}
-		log.Debug("=============================")
-		time.Sleep(5 * time.Second)
-	}
 
 }
 
@@ -211,9 +183,8 @@ func isOwnZone(domain string) bool {
 }
 
 func mainHandler(w dns.ResponseWriter, r *dns.Msg) {
-	latencyMutex.Lock() //TODO: MOVE IT TO GORUTINE
-	latencyStats[r.Id] = time.Now()
-	latencyMutex.Unlock()
+	lm.PushStartId(r.Id)
+
 	for _, q := range r.Question {
 		if isOwnZone(q.Name) {
 			authHandler(w, r, q.Name)
@@ -225,8 +196,8 @@ func mainHandler(w dns.ResponseWriter, r *dns.Msg) {
 
 func connCloser(w dns.ResponseWriter, r *dns.Msg) {
 	time.Sleep(time.Duration(config.TIMEOUT_SECONDS) * time.Second)
-	if &w != nil {
-		log.Warnf("Close connention with error %d %s", r.Rcode, w.RemoteAddr().String())
+	if w != nil {
+		log.Errorf("Close connention with error %d %s", r.Rcode, w.RemoteAddr().String())
 
 		w.WriteMsg(r)
 	}

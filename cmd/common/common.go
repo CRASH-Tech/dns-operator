@@ -1,7 +1,6 @@
 package common
 
 import (
-	"github.com/jamiealquiza/tachymeter"
 	"github.com/miekg/dns"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
@@ -18,6 +17,7 @@ type Config struct {
 	COMPRESS        bool
 	TIMEOUT_SECONDS int
 	//QUEUE_SIZE       int
+	STATS_SAMPLES    int
 	PARALLEL_QUERIES int
 	DynamicClient    *dynamic.DynamicClient
 	KubernetesClient *kubernetes.Clientset
@@ -39,11 +39,11 @@ type Upstream struct {
 }
 
 type UpstreamStatus struct {
-	Alive        bool
-	Requests     int64
-	Answers      int64
-	Timeouts     int64
-	RCodes       map[int]int64
-	QTypes       map[uint16]int64
-	LatencyMeter *tachymeter.Tachymeter
+	Alive    bool
+	Requests int64
+	Answers  int64
+	Timeouts int64
+	RCodes   map[int]int64
+	QTypes   map[uint16]int64
+	LM       LatencyMeter
 }
