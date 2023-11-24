@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/signal"
 	"runtime"
@@ -102,13 +101,13 @@ func init() {
 
 	//prometheus.MustRegister(leaseExpiration)
 
-	ns, err := ioutil.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
-	if err != nil {
-		log.Panic(err)
-	}
+	// ns, err := ioutil.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
+	// if err != nil {
+	// 	log.Panic(err)
+	// }
 
-	namespace = string(ns)
-	hostname = os.Getenv("HOSTNAME")
+	// namespace = string(ns)
+	// hostname = os.Getenv("HOSTNAME")
 }
 
 func main() {
@@ -118,6 +117,10 @@ func main() {
 	kClient = kubernetes.NewClient(ctx, *config.DynamicClient, *config.KubernetesClient)
 
 	//mutex.Lock()
+
+	cache = make(map[Cache][]CacheRR)
+	go cacheCleaner()
+
 	lm = NewLM(config.STATS_SAMPLES)
 
 	setUpstreams()

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/gob"
 	"log"
 	"os"
 	"strconv"
@@ -62,9 +64,17 @@ func readConfig() (common.Config, error) {
 	config.TIMEOUT_SECONDS = getIntEnv("TIMEOUT_SECONDS", 10)  //TODO: CHECK IT
 	config.STATS_SAMPLES = getIntEnv("STATS_SAMPLES", 100)     //TODO: CHECK IT
 	config.COMPRESS = getBoolEnv("COMPRESS", true)
+	config.OVERRIDE_TTL = getIntEnv("OVERRIDE_TTL", 1000) //TODO: CHECK IT
+
 	//config.QUEUE_SIZE = getIntEnv("QUEUE_SIZE", 100) //TODO: CHECK IT
 
 	return config, nil
+}
+
+func Hash(s interface{}) []byte {
+	var b bytes.Buffer
+	gob.NewEncoder(&b).Encode(s)
+	return b.Bytes()
 }
 
 // func cidrHosts(netw string) []string {

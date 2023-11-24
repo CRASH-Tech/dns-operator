@@ -19,6 +19,7 @@ type Config struct {
 	//QUEUE_SIZE       int
 	STATS_SAMPLES    int
 	PARALLEL_QUERIES int
+	OVERRIDE_TTL     int
 	DynamicClient    *dynamic.DynamicClient
 	KubernetesClient *kubernetes.Clientset
 }

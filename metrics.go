@@ -21,7 +21,7 @@ func metrics() {
 			//if upstream.Status.LatencyMeter != nil {
 			//log.Println(upstream.Status.LatencyMeter.Calc())
 			//}
-			log.Println(lm.Meter.Calc())
+			//log.Println(lm.Meter.Calc())
 		}
 		log.Debug("=============================")
 		time.Sleep(5 * time.Second)

@@ -88,10 +88,10 @@ func recursorHandler(w dns.ResponseWriter, r *dns.Msg, question string) {
 			}
 			select {
 			case upstream.Chan <- query:
-				log.Debugf("Send query %s(%d) to upstream %s:%d(%s)", query.Msg.Question[0].Name, query.Msg.Question[0].Qtype, upstream.Host, upstream.Port, upstream.Type)
+				log.Debugf("Send query %v to upstream %s:%d(%s)", query.Msg, upstream.Host, upstream.Port, upstream.Type)
 				i++
 			default:
-				log.Warnf("Cannot send query %s(%d) to upstream %s:%d(%s) queue full", query.Msg.Question[0].Name, query.Msg.Question[0].Qtype, upstream.Host, upstream.Port, upstream.Type)
+				log.Warnf("Cannot send query %v to upstream %s:%d(%s) queue full", query.Msg, upstream.Host, upstream.Port, upstream.Type)
 			}
 		}
 	}
@@ -115,11 +115,38 @@ func upstreamWorker(upstream *common.Upstream) {
 
 	for query := range upstream.Chan {
 		upstream.Status.LM.PushStart()
-		log.Debugf("Received query %s(%d) resolving via %s:%d(%s)", query.Msg.Question[0].Name, query.Msg.Question[0].Qtype, upstream.Host, upstream.Port, upstream.Type)
+		log.Debugf("Received query %v resolving via %s:%d(%s)", query.Msg, upstream.Host, upstream.Port, upstream.Type)
 
 		upstream.Status.Alive = true
-		upstream.Status.Requests++
-		upstream.Status.QTypes[query.Msg.Question[0].Qtype]++
+
+		// var cacheRR []dns.RR
+		// for _, q := range query.Msg.Question {
+		// 	upstream.Status.Requests++
+		// 	upstream.Status.QTypes[q.Qtype]++
+		// 	cR := getFromCache(q.Name, q.Qtype)
+		// 	if cR != nil {
+		// 		cacheRR = append(cacheRR, cR...)
+		// 	}
+		// }
+
+		// if len(cacheRR) > 0 {
+		// 	m := new(dns.Msg)
+		// 	m.SetReply(query.Msg)
+		// 	m.Answer = cacheRR
+
+		// 	upstream.Status.Answers++
+		// 	upstream.Status.RCodes[0]++
+
+		// 	log.Debug("Send reply to client")
+		// 	query.RWriter.WriteMsg(m)
+
+		// 	upstream.Status.LM.PushEnd()
+		// 	lm.PushEndId(query.Msg.Id)
+
+		// 	continue
+		// }
+
+		log.Info(Hash(query.Msg.Question))
 
 		resp, _, err := client.Exchange(query.Msg, fmt.Sprintf("%s:%d", upstream.Host, upstream.Port))
 		if err != nil {
@@ -141,16 +168,23 @@ func upstreamWorker(upstream *common.Upstream) {
 
 			go connCloser(query.RWriter, resp)
 			continue
+
 		}
 
-		log.Debugf("Received responce %s(%d) resolved via %s:%d(%s)", resp.Question[0].Name, resp.Question[0].Qtype, upstream.Host, upstream.Port, upstream.Type)
+		//log.Debugf("Received responce %s(%d) resolved via %s:%d(%s)", resp.Question[0].Name, resp.Question[0].Qtype, upstream.Host, upstream.Port, upstream.Type)
 		upstream.Status.Answers++
 		upstream.Status.RCodes[resp.Rcode]++
+
+		// if config.OVERRIDE_TTL > 0 {
+		// 	resp.Answer[0].Header().Ttl += uint32(config.OVERRIDE_TTL)
+		// }
 
 		log.Debug("Send reply to client")
 		query.RWriter.WriteMsg(resp)
 
 		upstream.Status.LM.PushEnd()
 		lm.PushEndId(query.Msg.Id)
+
+		putToCache(resp.Answer)
 	}
 }
