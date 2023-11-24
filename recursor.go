@@ -15,7 +15,7 @@ func setUpstreams() {
 		Host:         "8.8.8.8",
 		Port:         53,
 		Type:         "udp",
-		QueueSize:    10000,
+		QueueSize:    100000,
 		Chan:         make(chan common.QueryJob, 10000),
 		AllowedZones: []string{"."},
 	})
@@ -24,7 +24,7 @@ func setUpstreams() {
 		Host:         "8.8.4.4",
 		Port:         53,
 		Type:         "udp",
-		QueueSize:    10000,
+		QueueSize:    100000,
 		Chan:         make(chan common.QueryJob, 10000),
 		AllowedZones: []string{"."},
 	})
@@ -33,7 +33,7 @@ func setUpstreams() {
 		Host:         "77.88.8.8",
 		Port:         53,
 		Type:         "udp",
-		QueueSize:    10000,
+		QueueSize:    100000,
 		Chan:         make(chan common.QueryJob, 10000),
 		AllowedZones: []string{"."},
 	})
@@ -42,7 +42,7 @@ func setUpstreams() {
 		Host:         "77.88.8.1",
 		Port:         53,
 		Type:         "udp",
-		QueueSize:    10000,
+		QueueSize:    100000,
 		Chan:         make(chan common.QueryJob, 10000),
 		AllowedZones: []string{"."},
 	})
@@ -51,7 +51,7 @@ func setUpstreams() {
 		Host:         "77.88.8.8",
 		Port:         853,
 		Type:         "tcp-tls",
-		QueueSize:    10000,
+		QueueSize:    100000,
 		Chan:         make(chan common.QueryJob, 10000),
 		AllowedZones: []string{"."},
 	})
@@ -60,7 +60,7 @@ func setUpstreams() {
 	// 	Host:         "195.211.122.1",
 	// 	Port:         53,
 	// 	Type:         "udp",
-	// 	QueueSize:    10000,
+	// 	QueueSize:    100000,
 	// 	Chan:         make(chan common.QueryJob, 10000),
 	// 	AllowedZones: []string{"uis"},
 	// })
@@ -69,7 +69,7 @@ func setUpstreams() {
 		Host:         "78.28.209.178",
 		Port:         53,
 		Type:         "udp",
-		QueueSize:    10000,
+		QueueSize:    100000,
 		Chan:         make(chan common.QueryJob, 10000),
 		AllowedZones: []string{"."},
 	})
@@ -119,34 +119,25 @@ func upstreamWorker(upstream *common.Upstream) {
 
 		upstream.Status.Alive = true
 
-		// var cacheRR []dns.RR
-		// for _, q := range query.Msg.Question {
-		// 	upstream.Status.Requests++
-		// 	upstream.Status.QTypes[q.Qtype]++
-		// 	cR := getFromCache(q.Name, q.Qtype)
-		// 	if cR != nil {
-		// 		cacheRR = append(cacheRR, cR...)
-		// 	}
-		// }
+		queryHash := Hash(query.Msg.Question)
+		cacheRR := cache.Get(queryHash)
+		if len(cacheRR) > 0 {
+			m := new(dns.Msg)
+			m.SetReply(query.Msg)
+			m.Answer = cacheRR
 
-		// if len(cacheRR) > 0 {
-		// 	m := new(dns.Msg)
-		// 	m.SetReply(query.Msg)
-		// 	m.Answer = cacheRR
+			upstream.Status.Answers++
+			upstream.Status.RCodes[0]++
 
-		// 	upstream.Status.Answers++
-		// 	upstream.Status.RCodes[0]++
+			log.Debug("Send reply to client")
+			rand.Shuffle(len(m.Answer), func(i, j int) { m.Answer[i], m.Answer[j] = m.Answer[j], m.Answer[i] }) //RANDOM RRs
+			query.RWriter.WriteMsg(m)
 
-		// 	log.Debug("Send reply to client")
-		// 	query.RWriter.WriteMsg(m)
+			upstream.Status.LM.PushEnd()
+			lm.PushEndId(query.Msg.Id)
 
-		// 	upstream.Status.LM.PushEnd()
-		// 	lm.PushEndId(query.Msg.Id)
-
-		// 	continue
-		// }
-
-		log.Info(Hash(query.Msg.Question))
+			continue
+		}
 
 		resp, _, err := client.Exchange(query.Msg, fmt.Sprintf("%s:%d", upstream.Host, upstream.Port))
 		if err != nil {
@@ -171,20 +162,26 @@ func upstreamWorker(upstream *common.Upstream) {
 
 		}
 
-		//log.Debugf("Received responce %s(%d) resolved via %s:%d(%s)", resp.Question[0].Name, resp.Question[0].Qtype, upstream.Host, upstream.Port, upstream.Type)
+		log.Debugf("Received responce %v resolved via %s:%d(%s)", resp.Answer, upstream.Host, upstream.Port, upstream.Type)
 		upstream.Status.Answers++
 		upstream.Status.RCodes[resp.Rcode]++
 
-		// if config.OVERRIDE_TTL > 0 {
-		// 	resp.Answer[0].Header().Ttl += uint32(config.OVERRIDE_TTL)
-		// }
+		if config.ADD_TTL_SECONDS > 0 {
+			var oRRs []dns.RR
+			for _, rr := range resp.Answer {
+				rr.Header().Ttl += uint32(config.ADD_TTL_SECONDS)
+				oRRs = append(oRRs, rr)
+			}
+			resp.Answer = oRRs
+		}
 
 		log.Debug("Send reply to client")
+		rand.Shuffle(len(resp.Answer), func(i, j int) { resp.Answer[i], resp.Answer[j] = resp.Answer[j], resp.Answer[i] }) //RANDOM RRs
 		query.RWriter.WriteMsg(resp)
 
 		upstream.Status.LM.PushEnd()
 		lm.PushEndId(query.Msg.Id)
 
-		putToCache(resp.Answer)
+		cache.Put(queryHash, resp.Answer)
 	}
 }

@@ -8,14 +8,18 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var (
-	cache     map[string][]CacheRR
-	cacheLock sync.RWMutex
-)
+func NewCache() *Cache {
+	cache := Cache{
+		cache: make(map[string][]CacheRR),
+	}
+	go cache.cleaner()
+
+	return &cache
+}
 
 type Cache struct {
-	Name  string
-	RType uint16
+	sync.RWMutex
+	cache map[string][]CacheRR
 }
 
 type CacheRR struct {
@@ -23,72 +27,54 @@ type CacheRR struct {
 	Expire time.Time
 }
 
-func cacheCleaner() {
+func (c *Cache) cleaner() {
 	for {
-		cacheLock.RLock()
-		oldCache := cache
-		cacheLock.RUnlock()
-
-		newCache := make(map[Cache][]CacheRR)
-		now := time.Now()
-
-		for k, cacheRRs := range oldCache {
-			for _, cacheRR := range cacheRRs {
-				if !now.After(cacheRR.Expire) {
-					newCache[k] = append(newCache[k], cacheRR)
+		c.Lock()
+		newCache := make(map[string][]CacheRR)
+		for hash, cacheRRs := range c.cache {
+			for _, rr := range cacheRRs {
+				if rr.Expire.After(time.Now()) {
+					newCache[hash] = append(newCache[hash], rr)
 				}
 			}
 		}
 
-		cacheLock.Lock()
-		cache = newCache
-		cacheLock.Unlock()
+		c.cache = newCache
+		c.Unlock()
 
 		time.Sleep(10 * time.Second)
+		log.Errorf("cache size: %d", len(c.cache))
 	}
 }
 
-func getFromCache(n string, t uint16) []dns.RR {
-	cacheLock.RLock()
-	c := cache
-	cacheLock.RUnlock()
+func (c *Cache) Get(hash string) []dns.RR {
+	c.RLock()
+	defer c.RUnlock()
 
-	//var result []dns.RR
-	for k, cacheRRs := range c {
-		if k.Name == n && k.RType == t {
-			for _, cacheRR := range cacheRRs {
-				log.Errorf("append %v", cacheRR)
-				//result = append(result, cacheRR)
-			}
-			//log.Errorf("found in cache: %v", cacheRRs)
-		}
+	var result []dns.RR
+	for _, rr := range c.cache[hash] {
+		result = append(result, rr.RR)
 	}
 
-	//log.Errorf("Not found in cache: %s", n)
-	return nil
+	return result
 }
 
-func putToCache(rrs []dns.RR) {
-	//return
-	cacheLock.Lock()
-
-	//cacheLock.RLock()
-	newCache := cache
-	//cacheLock.RUnlock()
+func (c *Cache) Put(hash string, rrs []dns.RR) {
+	c.Lock()
+	var tmpRRs []dns.RR
+	for _, rr := range c.cache[hash] {
+		tmpRRs = append(tmpRRs, rr)
+	}
+	if Hash(rrs) == Hash(tmpRRs) {
+		c.Unlock()
+		return
+	}
 
 	for _, rr := range rrs {
-		c := Cache{
-			Name:  rr.Header().Name,
-			RType: rr.Header().Rrtype,
-		}
-		cacheRR := CacheRR{
+		c.cache[hash] = append(c.cache[hash], CacheRR{
 			RR:     rr,
-			Expire: time.Now().Add(time.Duration(int(rr.Header().Ttl)) * time.Second),
-		}
-		newCache[c] = append(newCache[c], cacheRR)
+			Expire: time.Now().Add(time.Duration(rr.Header().Ttl) * time.Second),
+		})
 	}
-
-	// cacheLock.Lock()
-	cache = newCache
-	cacheLock.Unlock()
+	c.Unlock()
 }

@@ -14,13 +14,13 @@ type LatencyMeter struct {
 	Meter *tachymeter.Tachymeter
 }
 
-func NewLM(size int) LatencyMeter {
+func NewLM(size int) *LatencyMeter {
 	lm := LatencyMeter{
 		Meter: tachymeter.New(&tachymeter.Config{Size: size}),
 		stats: make(map[uint16]time.Time),
 	}
 
-	return lm
+	return &lm
 }
 
 func (lm *LatencyMeter) PushStartId(id uint16) {

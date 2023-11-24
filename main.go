@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -34,7 +33,8 @@ var (
 	namespace string
 	hostname  string
 
-	lm LatencyMeter
+	lm    *LatencyMeter
+	cache *Cache
 
 	upstreams []*common.Upstream
 	//recursiveQueues []chan common.QueryJob
@@ -118,8 +118,7 @@ func main() {
 
 	//mutex.Lock()
 
-	cache = make(map[Cache][]CacheRR)
-	go cacheCleaner()
+	cache = NewCache()
 
 	lm = NewLM(config.STATS_SAMPLES)
 
@@ -136,13 +135,13 @@ func main() {
 	// 	name, secret = dns.Fqdn(a[0]), a[1] // fqdn the name, which everybody forgets...
 	// }
 
-	runtime.GOMAXPROCS(config.MAX_PROCS)
+	//runtime.GOMAXPROCS(config.MAX_PROCS)
 
 	dns.HandleFunc(".", mainHandler)
 
-	for i := 0; i < config.SO_REUSE_PORTS; i++ { //TODO: CHECK SO_REUSE_PORTS
-		go serve("tcp", config.LISTEN_TCP_PORT, secret, config.SO_REUSE_PORTS > 1)
-		go serve("udp", config.LISTEN_UDP_PORT, secret, config.SO_REUSE_PORTS > 1)
+	for i := 0; i < config.THREADS; i++ { //TODO: CHECK SO_REUSE_PORTS
+		go serve("tcp", config.LISTEN_TCP_PORT, secret, config.SO_REUSE_PORTS)
+		go serve("udp", config.LISTEN_UDP_PORT, secret, config.SO_REUSE_PORTS)
 	}
 
 	sig := make(chan os.Signal)

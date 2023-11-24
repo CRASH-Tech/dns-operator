@@ -13,13 +13,14 @@ type Config struct {
 	LOG_LEVEL       string
 	LOG_FORMAT      string
 	MAX_PROCS       int
-	SO_REUSE_PORTS  int
+	SO_REUSE_PORTS  bool
+	THREADS         int
 	COMPRESS        bool
 	TIMEOUT_SECONDS int
 	//QUEUE_SIZE       int
 	STATS_SAMPLES    int
 	PARALLEL_QUERIES int
-	OVERRIDE_TTL     int
+	ADD_TTL_SECONDS  int
 	DynamicClient    *dynamic.DynamicClient
 	KubernetesClient *kubernetes.Clientset
 }
@@ -46,5 +47,5 @@ type UpstreamStatus struct {
 	Timeouts int64
 	RCodes   map[int]int64
 	QTypes   map[uint16]int64
-	LM       LatencyMeter
+	LM       *LatencyMeter
 }

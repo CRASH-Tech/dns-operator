@@ -55,26 +55,27 @@ func readConfig() (common.Config, error) {
 	config.LISTEN_TCP_PORT = getIntEnv("LISTEN_TCP_PORT", 5353)
 	config.LISTEN_UDP_PORT = getIntEnv("LISTEN_UDP_PORT", 5353)
 
-	config.LOG_LEVEL = getStringEnv("LOG_LEVEL", "warning") //TODO: CHANGE TO info
+	config.LOG_LEVEL = getStringEnv("LOG_LEVEL", "debug") //TODO: CHANGE TO info
 	config.LOG_FORMAT = getStringEnv("LOG_FORMAT", "text")
 
-	config.MAX_PROCS = getIntEnv("MAX_PROCS", 1000)
-	config.SO_REUSE_PORTS = getIntEnv("SO_REUSE_PORTS", 1000)  //TODO: CHECK IT
-	config.PARALLEL_QUERIES = getIntEnv("PARALLEL_QUERIES", 4) //TODO: CHECK IT
+	//config.MAX_PROCS = getIntEnv("MAX_PROCS", 10000)
+	config.THREADS = getIntEnv("THREADS", 12)
+	config.SO_REUSE_PORTS = getBoolEnv("SO_REUSE_PORTS", true) //TODO: CHECK IT
+	config.PARALLEL_QUERIES = getIntEnv("PARALLEL_QUERIES", 3) //TODO: CHECK IT
 	config.TIMEOUT_SECONDS = getIntEnv("TIMEOUT_SECONDS", 10)  //TODO: CHECK IT
 	config.STATS_SAMPLES = getIntEnv("STATS_SAMPLES", 100)     //TODO: CHECK IT
 	config.COMPRESS = getBoolEnv("COMPRESS", true)
-	config.OVERRIDE_TTL = getIntEnv("OVERRIDE_TTL", 1000) //TODO: CHECK IT
+	config.ADD_TTL_SECONDS = getIntEnv("ADD_TTL_SECONDS", 1000) //TODO: CHECK IT
 
 	//config.QUEUE_SIZE = getIntEnv("QUEUE_SIZE", 100) //TODO: CHECK IT
 
 	return config, nil
 }
 
-func Hash(s interface{}) []byte {
+func Hash(s interface{}) string {
 	var b bytes.Buffer
 	gob.NewEncoder(&b).Encode(s)
-	return b.Bytes()
+	return string(b.Bytes())
 }
 
 // func cidrHosts(netw string) []string {
