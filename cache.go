@@ -4,27 +4,40 @@ import (
 	"sync"
 	"time"
 
+	. "github.com/CRASH-Tech/dns-operator/cmd/common"
 	"github.com/miekg/dns"
-	log "github.com/sirupsen/logrus"
 )
-
-func NewCache() *Cache {
-	cache := Cache{
-		cache: make(map[string][]CacheRR),
-	}
-	go cache.cleaner()
-
-	return &cache
-}
 
 type Cache struct {
 	sync.RWMutex
-	cache map[string][]CacheRR
+	cache  map[string][]CacheRR
+	Status CacheStatus
+}
+
+type CacheStatus struct {
+	Size     int64
+	Requests int64
+	Answers  int64
+	RCodes   map[int]int64
+	QTypes   map[uint16]int64
+	LM       *LatencyMeter
 }
 
 type CacheRR struct {
 	dns.RR
 	Expire time.Time
+}
+
+func NewCache() *Cache {
+	cache := Cache{
+		cache: make(map[string][]CacheRR),
+	}
+
+	cache.Status.LM = NewLM(config.STATS_SAMPLES)
+
+	go cache.cleaner()
+
+	return &cache
 }
 
 func (c *Cache) cleaner() {
@@ -40,10 +53,11 @@ func (c *Cache) cleaner() {
 		}
 
 		c.cache = newCache
+		c.Status.Size = int64(len(c.cache))
 		c.Unlock()
 
 		time.Sleep(10 * time.Second)
-		log.Errorf("cache size: %d", len(c.cache))
+		//log.Errorf("cache size: %d", len(c.cache))
 	}
 }
 

@@ -55,7 +55,7 @@ func readConfig() (common.Config, error) {
 	config.LISTEN_TCP_PORT = getIntEnv("LISTEN_TCP_PORT", 5353)
 	config.LISTEN_UDP_PORT = getIntEnv("LISTEN_UDP_PORT", 5353)
 
-	config.LOG_LEVEL = getStringEnv("LOG_LEVEL", "debug") //TODO: CHANGE TO info
+	config.LOG_LEVEL = getStringEnv("LOG_LEVEL", "warning") //TODO: CHANGE TO info
 	config.LOG_FORMAT = getStringEnv("LOG_FORMAT", "text")
 
 	//config.MAX_PROCS = getIntEnv("MAX_PROCS", 10000)

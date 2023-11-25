@@ -9,7 +9,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/CRASH-Tech/dns-operator/cmd/common"
 	. "github.com/CRASH-Tech/dns-operator/cmd/common"
 	"github.com/CRASH-Tech/dns-operator/cmd/kubernetes"
 
@@ -28,7 +27,7 @@ import (
 
 var (
 	version   = "0.0.7"
-	config    common.Config
+	config    Config
 	kClient   *kubernetes.Client
 	namespace string
 	hostname  string
@@ -36,7 +35,7 @@ var (
 	lm    *LatencyMeter
 	cache *Cache
 
-	upstreams []*common.Upstream
+	upstreams []*Upstream
 	//recursiveQueues []chan common.QueryJob
 
 	// leaseExpiration = prometheus.NewGaugeVec(
@@ -191,9 +190,40 @@ func mainHandler(w dns.ResponseWriter, r *dns.Msg) {
 		if isOwnZone(q.Name) {
 			authHandler(w, r, q.Name)
 		} else {
-			recursorHandler(w, r, q.Name)
+			if !cacheHandler(w, r) {
+				log.Error("no cache")
+				recursorHandler(w, r, q.Name)
+			}
 		}
 	}
+}
+
+func cacheHandler(w dns.ResponseWriter, r *dns.Msg) bool {
+	cache.Status.Requests++
+	cache.Status.LM.PushStart()
+	//cache.Status.QTypes[r.Question]
+	queryHash := Hash(r.Question)
+	cacheRR := cache.Get(queryHash)
+	if len(cacheRR) > 0 {
+		//m := new(dns.Msg)
+		//m.SetReply(r.Msg)
+		r.Answer = cacheRR
+
+		cache.Status.Answers++
+		//upstream.Status.RCodes[0]++
+
+		//log.Debug("Send reply to client")
+		//rand.Shuffle(len(m.Answer), func(i, j int) { m.Answer[i], m.Answer[j] = m.Answer[j], m.Answer[i] }) //RANDOM RRs
+		w.WriteMsg(r)
+
+		//upstream.Status.LM.PushEnd()
+		lm.PushEndId(r.Id)
+		cache.Status.LM.PushEnd()
+
+		return true
+	}
+
+	return false
 }
 
 func connCloser(w dns.ResponseWriter, r *dns.Msg) {

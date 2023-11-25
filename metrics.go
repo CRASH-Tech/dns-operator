@@ -9,8 +9,9 @@ import (
 func metrics() {
 	for {
 		for _, upstream := range upstreams {
-			log.Debugf("UPSTREAM STATUS: %s:%d(%s) ALIVE: %t REQUESTS: %d ANSWERS: %d RCODES: %v QTYPES: %v",
-				upstream.Host, upstream.Port,
+			log.Errorf("UPSTREAM STATUS: %s:%d(%s) ALIVE: %t REQUESTS: %d ANSWERS: %d RCODES: %v QTYPES: %v",
+				upstream.Host,
+				upstream.Port,
 				upstream.Type,
 				upstream.Status.Alive,
 				upstream.Status.Requests,
@@ -23,7 +24,14 @@ func metrics() {
 			//}
 			//log.Println(lm.Meter.Calc())
 		}
-		log.Debug("=============================")
+		log.Errorf("CACHE STATUS: SIZE: %d REQUESTS: %d ANSWERS: %d RCODES: %v QTYPES: %v",
+			cache.Status.Size,
+			cache.Status.Requests,
+			cache.Status.Answers,
+			cache.Status.RCodes,
+			cache.Status.QTypes,
+		)
+		log.Error("=============================")
 		time.Sleep(5 * time.Second)
 	}
 
